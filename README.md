@@ -56,3 +56,17 @@ Run:
 - `bench/` - Benchmark programs.
 - `DESIGN.md` - Allocator design documentation.
 - `BENCHMARKS.md` - Benchmark results.
+
+
+## Novelty & Innovation Features
+
+To go beyond a standard allocator, we implemented three specific engineering optimizations:
+
+1. 'In-Place `realloc` (Performance)'
+   When resizing a block, if the new size fits within the block's current size class capacity (and is at least half the capacity), the allocator returns the exact same pointer. This avoids costly memory copying and lock contention.
+
+2. 'Hardened Debug Mode (Robustness & Security)'
+   When compiled with `-DMEMCTL_DEBUG`, the allocator injects magic numbers (`0xA110C8ED`) into block headers, poisons freed memory with `0xDD`, and actively detects double-frees or invalid pointers, printing a warning to the terminal instead of crashing.
+
+3. 'calloc` Zero-Skip for Large Allocations (Throughput)'
+   Since the Linux kernel guarantees that fresh `mmap()` pages are zeroed, our allocator skips the manual `memset()` for large blocks (>32KB) that come directly from the OS. We only zero recycled blocks, saving millions of CPU cycles.
