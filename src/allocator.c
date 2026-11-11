@@ -12,8 +12,9 @@
 #define LARGE_CLASS_ID 999
 
 // Magic numbers for Debug Mode
-#define MAGIC_LIVE 0xA110C8ED
-#define MAGIC_FREE 0xDEADF4EE
+#define MAGIC_LIVE  0xA110C8ED 
+#define MAGIC_FREE  0xDEADF4EE 
+#define MAGIC_LARGE 0xC110C8ED
 
 // Size classes: 16 to 32KB
 static const size_t class_sizes[NUM_CLASSES] = {
@@ -29,7 +30,15 @@ typedef struct block_header {
     size_t size;            
 } block_header;
 
-static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
+// NOVELTY 2: Per-Class Locks (Upgraded from 1 Global Lock)
+static pthread_mutex_t class_locks[NUM_CLASSES];
+static pthread_once_t locks_init_once = PTHREAD_ONCE_INIT;
+
+static void init_locks(void) {
+    for (int i = 0; i < NUM_CLASSES; i++) {
+        pthread_mutex_init(&class_locks[i], NULL);
+    }
+}
 
 typedef struct free_block {
     struct free_block *next;
@@ -66,7 +75,7 @@ void *my_malloc(size_t size) {
         
         block_header *header = (block_header *)mapping;
         header->class_id = LARGE_CLASS_ID;
-        header->magic = MAGIC_LIVE;
+        header->magic = MAGIC_LARGE; // Marked as large/fresh
         header->size = size;
         return (void *)(header + 1);
     }
@@ -75,7 +84,8 @@ void *my_malloc(size_t size) {
     int class_id = get_class_id(size);
     if (class_id == -1) { errno = ENOMEM; return NULL; }
 
-    pthread_mutex_lock(&global_lock);
+    pthread_once(&locks_init_once, init_locks);
+    pthread_mutex_lock(&class_locks[class_id]);
 
     block_header *header = NULL;
 
@@ -86,7 +96,7 @@ void *my_malloc(size_t size) {
     } else {
         void *arena = mmap(NULL, ARENA_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (arena == MAP_FAILED) {
-            pthread_mutex_unlock(&global_lock);
+            pthread_mutex_unlock(&class_locks[class_id]);
             errno = ENOMEM; 
             return NULL; 
         }
@@ -110,7 +120,7 @@ void *my_malloc(size_t size) {
         header = (block_header *)((char *)fb - sizeof(block_header));
     }
 
-    pthread_mutex_unlock(&global_lock);
+    pthread_mutex_unlock(&class_locks[class_id]);
     header->size = size;
     header->magic = MAGIC_LIVE;
     return (void *)(header + 1);
@@ -122,31 +132,35 @@ void my_free(void *ptr) {
     block_header *header = ((block_header *)ptr) - 1;
 
     #ifdef MEMCTL_DEBUG
-    if (header->magic != MAGIC_LIVE) {
+    // NOVELTY 2: Debug Mode Catch
+    if (header->magic != MAGIC_LIVE && header->magic != MAGIC_LARGE) {
         const char *err = "[DEBUG] ERROR: Double free or invalid pointer detected!\n";
         write(2, err, 55);
         return;
     }
     #endif
 
+    // 1. Large Free Path
     if (header->class_id == LARGE_CLASS_ID) {
         size_t total_size = round_up(header->size + sizeof(block_header), 4096);
         munmap(header, total_size);
         return;
     }
 
-    pthread_mutex_lock(&global_lock);
+    // 2. Small Free Path
+    pthread_once(&locks_init_once, init_locks);
+    pthread_mutex_lock(&class_locks[header->class_id]);
 
     #ifdef MEMCTL_DEBUG
     header->magic = MAGIC_FREE;
-    memset(ptr, 0xDD, header->size);
+    memset(ptr, 0xDD, header->size); // Poison
     #endif
     
     free_block *fb = (free_block *)ptr;
     fb->next = free_lists[header->class_id];
     free_lists[header->class_id] = fb;
     
-    pthread_mutex_unlock(&global_lock);
+    pthread_mutex_unlock(&class_locks[header->class_id]);
 }
 
 void *my_calloc(size_t nmemb, size_t size) {
@@ -156,8 +170,15 @@ void *my_calloc(size_t nmemb, size_t size) {
     }
     size_t total = nmemb * size;
     void *ptr = my_malloc(total);
+    
     if (ptr != NULL && total > 0) {
-        memset(ptr, 0, total); 
+        block_header *header = ((block_header *)ptr) - 1;
+        // NOVELTY 3: Zero-Skip for Large blocks (fresh from mmap)
+        if (header->class_id == LARGE_CLASS_ID) {
+            header->magic = MAGIC_LIVE; // Mark as used so free() works
+        } else {
+            memset(ptr, 0, total); 
+        }
     }
     return ptr;
 }
@@ -166,7 +187,6 @@ void *my_realloc(void *ptr, size_t size) {
     if (ptr == NULL) return my_malloc(size);
     if (size == 0) { my_free(ptr); return NULL; }
 
-    // Check for overflow immediately
     if (size > SIZE_MAX - sizeof(block_header)) {
         errno = ENOMEM;
         return NULL;
@@ -174,6 +194,7 @@ void *my_realloc(void *ptr, size_t size) {
 
     block_header *header = ((block_header *)ptr) - 1;
 
+    // NOVELTY 1: In-Place Realloc
     if (header->class_id != LARGE_CLASS_ID) {
         size_t current_capacity = class_sizes[header->class_id];
         if (size <= current_capacity && size > (current_capacity / 2)) {
