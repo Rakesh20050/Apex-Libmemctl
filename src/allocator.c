@@ -57,7 +57,17 @@ static int get_class_id(size_t size) {
 }
 
 static size_t round_up(size_t num, size_t multiple) {
-    return (num + multiple - 1) / multiple * multiple;
+    if (multiple == 0) return 0;
+
+    size_t remainder = num % multiple;
+
+    if (remainder == 0) return num;
+
+    size_t padding = multiple - remainder;
+
+    if (num > SIZE_MAX - padding) return 0;
+
+    return num + padding;
 }
 
 void *my_malloc(size_t size) {
@@ -70,6 +80,10 @@ void *my_malloc(size_t size) {
             return NULL;
         }
         size_t total_size = round_up(size + sizeof(block_header), 4096);
+        if (total_size == 0) {
+    errno = ENOMEM;
+    return NULL;
+}
         void *mapping = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (mapping == MAP_FAILED) { errno = ENOMEM; return NULL; }
         
