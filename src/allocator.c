@@ -169,22 +169,28 @@ void *my_malloc(size_t size) {
             return NULL; 
         }
 
-        size_t block_total = class_sizes[class_id] + sizeof(block_header);
-        size_t num_blocks = ARENA_SIZE / block_total;
-        if (num_blocks > CACHE_MAX_BLOCKS) num_blocks = CACHE_MAX_BLOCKS; // Don't hog all to one thread
+size_t block_total = class_sizes[class_id] + sizeof(block_header);
+size_t num_blocks = ARENA_SIZE / block_total;
 
-        for (size_t i = 0; i < num_blocks; i++) {
-            block_header *b = (block_header *)((char *)arena + (i * block_total));
-            b->class_id = class_id;
-            b->magic = MAGIC_LIVE;
-            b->size = class_sizes[class_id];
-            
-            free_block *fb = (free_block *)((char *)b + sizeof(block_header));
-            fb->next = t_cache[class_id].head;
-            t_cache[class_id].head = fb;
-            t_cache[class_id].count++;
-        }
+for (size_t i = 0; i < num_blocks; i++) {
+    block_header *b = (block_header *)((char *)arena + (i * block_total));
+
+    b->class_id = class_id;
+    b->magic = MAGIC_FREE;
+    b->size = class_sizes[class_id];
+
+    free_block *fb = (free_block *)((char *)b + sizeof(block_header));
+
+    if (t_cache[class_id].count < CACHE_MAX_BLOCKS) {
+        fb->next = t_cache[class_id].head;
+        t_cache[class_id].head = fb;
+        t_cache[class_id].count++;
+    } else {
+        fb->next = free_lists[class_id];
+        free_lists[class_id] = fb;
     }
+} 
+   }
 
     pthread_mutex_unlock(&class_locks[class_id]);
 
