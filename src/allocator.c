@@ -150,14 +150,26 @@ void *my_malloc(size_t size) {
     pthread_once(&locks_init_once, init_locks);
     pthread_mutex_lock(&class_locks[class_id]);
 
-    int fetched = 0;
-    while (free_lists[class_id] != NULL && fetched < CACHE_MAX_BLOCKS) {
-        free_block *fb = free_lists[class_id];
-        free_lists[class_id] = fb->next;
-        fb->next = t_cache[class_id].head;
-        t_cache[class_id].head = fb;
-        t_cache[class_id].count++;
-        fetched++;
+        // Optimized Batch Refill (Fewer operations while holding the lock)
+    free_block *curr = free_lists[class_id];
+    if (curr != NULL) {
+        // Count how many we can grab (up to 64)
+        free_block *batch_head = curr;
+        free_block *batch_tail = curr;
+        int fetched = 1;
+        
+        while (batch_tail->next != NULL && fetched < 64) {
+            batch_tail = batch_tail->next;
+            fetched++;
+        }
+        
+        // Update the global free list to point to the remainder
+        free_lists[class_id] = batch_tail->next;
+        
+        // Attach the batch to our thread cache
+        batch_tail->next = t_cache[class_id].head;
+        t_cache[class_id].head = batch_head;
+        t_cache[class_id].count += fetched;
     }
 
     // C. Global Free List Empty: Carve new Arena
@@ -169,28 +181,41 @@ void *my_malloc(size_t size) {
             return NULL; 
         }
 
-size_t block_total = class_sizes[class_id] + sizeof(block_header);
-size_t num_blocks = ARENA_SIZE / block_total;
+        size_t block_total = class_sizes[class_id] + sizeof(block_header);
+        size_t num_blocks = ARENA_SIZE / block_total;
 
-for (size_t i = 0; i < num_blocks; i++) {
-    block_header *b = (block_header *)((char *)arena + (i * block_total));
+        // Person B's Fix + O(1) Fast Link
+        free_block *local_global_chain = NULL; 
+        size_t local_global_count = 0;
 
-    b->class_id = class_id;
-    b->magic = MAGIC_FREE;
-    b->size = class_sizes[class_id];
+        for (size_t i = 0; i < num_blocks; i++) {
+            block_header *b = (block_header *)((char *)arena + (i * block_total));
+            b->class_id = class_id;
+            b->magic = MAGIC_LIVE;
+            b->size = class_sizes[class_id];
+            
+            free_block *fb = (free_block *)((char *)b + sizeof(block_header));
+            
+            if (t_cache[class_id].count < CACHE_MAX_BLOCKS) {
+                fb->next = t_cache[class_id].head;
+                t_cache[class_id].head = fb;
+                t_cache[class_id].count++;
+            } else {
+                fb->next = local_global_chain;
+                local_global_chain = fb;
+                local_global_count++;
+            }
+        }
 
-    free_block *fb = (free_block *)((char *)b + sizeof(block_header));
-
-    if (t_cache[class_id].count < CACHE_MAX_BLOCKS) {
-        fb->next = t_cache[class_id].head;
-        t_cache[class_id].head = fb;
-        t_cache[class_id].count++;
-    } else {
-        fb->next = free_lists[class_id];
-        free_lists[class_id] = fb;
+        if (local_global_count > 0) {
+            free_block *tail = local_global_chain;
+            while (tail->next != NULL) {
+                tail = tail->next;
+            }
+            tail->next = free_lists[class_id];
+            free_lists[class_id] = local_global_chain;
+        }
     }
-} 
-   }
 
     pthread_mutex_unlock(&class_locks[class_id]);
 
@@ -302,9 +327,7 @@ void *my_realloc(void *ptr, size_t size) {
 }
 
 #ifdef MEMCTL_DEBUG
-#include <stdio.h>
-
-// NOVELTY 5: Public Heap Visualizer (For Demo)
+// NOVELTY 5: Heap Visualizer (For Demo)
 void debug_print_heap_map(void) {
     printf("\n=== HEAP MAP (Global Free Lists) ===\n");
     for (int i = 0; i < NUM_CLASSES; i++) {
@@ -314,7 +337,6 @@ void debug_print_heap_map(void) {
             count++;
             curr = curr->next;
         }
-        // Only print classes that have active free blocks
         if (count > 0) {
             printf("Class %2d (%4zu bytes) : ", i, class_sizes[i]);
             for (int j = 0; j < count && j < 20; j++) printf("[ ] "); 
