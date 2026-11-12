@@ -63,3 +63,6 @@ The performance gains and robustness above are driven by four specific novelties
 2.  Hardened Debug Mode: Uses canary magic numbers and memory poisoning (`0xDD`) to catch double-frees.
 3.  calloc` Zero-Skip: Skips manual `memset` for fresh large `mmap` blocks, relying on the OS zero-page guarantee.
 4.  Thread Caches: Achieves a zero-lock fast path for high-throughput multi-threading, flushing safely on thread exit via `pthread_key`.
+
+## Diagnostic Additions
+We added a Heap Visualizer under the `MEMCTL_DEBUG` flag. This is a read-only diagnostic tool and does not sit on the allocation fast path. Therefore, it has zero impact on the ~5.32 million ops/sec throughput.

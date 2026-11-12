@@ -73,3 +73,6 @@ To go beyond a standard allocator, we implemented three specific engineering opt
 
 4. 'Thread Caches with Exit-Flush (Scalability)'
    Each thread maintains a private cache of up to 32 blocks per size class. Threads allocate and free memory with 'zero locks' by pulling from their local stash. A `pthread_key` destructor ensures cached blocks are safely returned to the global pool when a thread exits, achieving massive multi-threaded throughput (~5.3 million ops/sec).
+
+5. Heap Visualizer (Demonstration & Diagnostics)
+   We added an ASCII heap visualizer (`debug_print_heap_map`) under the `MEMCTL_DEBUG` flag. It prints the state of the global free lists. Because of our Thread Caches, the global heap map often appears empty during high-throughput operations, proving that threads are successfully bypassing the global locks to allocate and free memory locally.
