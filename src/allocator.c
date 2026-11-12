@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -293,3 +294,28 @@ void *my_realloc(void *ptr, size_t size) {
     my_free(ptr);
     return new_ptr;
 }
+
+#ifdef MEMCTL_DEBUG
+#include <stdio.h>
+
+// NOVELTY 5: Public Heap Visualizer (For Demo)
+void debug_print_heap_map(void) {
+    printf("\n=== HEAP MAP (Global Free Lists) ===\n");
+    for (int i = 0; i < NUM_CLASSES; i++) {
+        int count = 0;
+        free_block *curr = free_lists[i];
+        while (curr != NULL) {
+            count++;
+            curr = curr->next;
+        }
+        // Only print classes that have active free blocks
+        if (count > 0) {
+            printf("Class %2d (%4zu bytes) : ", i, class_sizes[i]);
+            for (int j = 0; j < count && j < 20; j++) printf("[ ] "); 
+            if (count > 20) printf("... (+%d more)", count - 20);
+            printf("\n");
+        }
+    }
+    printf("====================================\n\n");
+}
+#endif
