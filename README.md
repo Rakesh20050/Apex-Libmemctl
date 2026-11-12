@@ -76,3 +76,15 @@ To go beyond a standard allocator, we implemented three specific engineering opt
 
 5. Heap Visualizer (Demonstration & Diagnostics)
    We added an ASCII heap visualizer (`debug_print_heap_map`) under the `MEMCTL_DEBUG` flag. It prints the state of the global free lists. Because of our Thread Caches, the global heap map often appears empty during high-throughput operations, proving that threads are successfully bypassing the global locks to allocate and free memory locally.
+
+
+### Heap Visualizer (Novelty 5)
+
+Compile:
+```bash
+gcc -DMEMCTL_DEBUG -Iinclude -c src/allocator.c -o build/allocator_debug.o
+gcc -Iinclude tests/visual_demo.c build/allocator_debug.o -pthread -o build/visual_demo
+
+Run:
+
+./build/visual_demo
