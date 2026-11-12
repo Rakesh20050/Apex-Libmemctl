@@ -81,11 +81,9 @@ To go beyond a standard allocator, we implemented three specific engineering opt
 ### Heap Visualizer (Novelty 5)
 
 Compile:
-'''bash
+```bash
 gcc -DMEMCTL_DEBUG -Iinclude -c src/allocator.c -o build/allocator_debug.o
 gcc -Iinclude tests/visual_demo.c build/allocator_debug.o -pthread -o build/visual_demo
-'''
-Run:
-'''bash
+
+
 ./build/visual_demo
-'''
