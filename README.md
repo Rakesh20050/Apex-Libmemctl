@@ -60,7 +60,7 @@ Run:
 
 ## Novelty & Innovation Features
 
-To go beyond a standard allocator, we implemented three specific engineering optimizations:
+To go beyond a standard allocator, we implemented five  specific engineering optimizations:
 
 1. 'In-Place `realloc` (Performance)'
    When resizing a block, if the new size fits within the block's current size class capacity (and is at least half the capacity), the allocator returns the exact same pointer. This avoids costly memory copying and lock contention.

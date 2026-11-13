@@ -48,7 +48,7 @@ Small allocations are explicitly zeroed. Large allocations use the zero-filled m
 
 ## 9. Novelty Implementations
 
-Beyond the core arena architecture, we added four features to improve performance and robustness:
+Beyond the core arena architecture, we added five features to improve performance and robustness:
 
 *  In-Place Realloc: Avoids `memcpy` if the requested size fits within the existing block's size class capacity.
 *  Debug Hardening: Uses `#ifdef MEMCTL_DEBUG` to add canary magic numbers, poison freed memory (`0xDD`), and catch double-frees.
