@@ -487,8 +487,8 @@ static bool run_test(const char *name, test_function function)
 
 static bool test_large_allocations(void)
 {
-    // Test sizes above the 32KB LARGE_THRESHOLD
-    const size_t sizes[] = {33000, 65536, 1024 * 1024};
+    // Test sizes right at the 32KB boundary
+    const size_t sizes[] = {32767, 32768, 32769, 65536, 1024 * 1024};
     for (size_t i = 0; i < (sizeof(sizes) / sizeof(sizes[0])); i++) {
         unsigned char *ptr = (unsigned char *)my_malloc(sizes[i]);
         if (ptr == NULL || !pointer_is_aligned(ptr)) {
@@ -500,8 +500,19 @@ static bool test_large_allocations(void)
             my_free(ptr);
             return false;
         }
-        my_free(ptr); // This calls munmap for large blocks
+        my_free(ptr); 
     }
+    
+    // Test large realloc
+    unsigned char *ptr = (unsigned char *)my_malloc(100);
+    fill_pattern(ptr, 100, 0xBB);
+    ptr = (unsigned char *)my_realloc(ptr, 40000);
+    if (ptr == NULL || !pattern_is_intact(ptr, 100, 0xBB)) {
+        my_free(ptr);
+        return false;
+    }
+    my_free(ptr);
+    
     return true;
 }
 

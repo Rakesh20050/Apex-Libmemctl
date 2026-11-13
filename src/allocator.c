@@ -7,6 +7,10 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#ifdef MEMCTL_DEBUG
+void debug_print_heap_map(void);
+#endif
+
 #define ARENA_SIZE (1024 * 1024)    // 1 MB Arenas
 #define LARGE_THRESHOLD (32 * 1024) // Anything > 32KB is "Large"
 #define NUM_CLASSES 40
@@ -234,47 +238,42 @@ void my_free(void *ptr) {
 
     block_header *header = ((block_header *)ptr) - 1;
 
-    #ifdef MEMCTL_DEBUG
-    // Check if it's already free (Double Free Detection)
-    if (header->magic == MAGIC_FREE) {
-        const char *err = "[DEBUG] ERROR: Double free detected!\n";
-        (void)write(2, err, 37); 
-        return;
+    // 1. Check for invalid pointer OR double free (Runs in ALL builds)
+    if (header->magic != MAGIC_LIVE && header->magic != MAGIC_LARGE) {
+        #ifdef MEMCTL_DEBUG
+        const char *err = "[DEBUG] ERROR: Invalid pointer or double free detected!\n";
+        ssize_t r = write(2, err, 53); 
+        (void)r;
+        #endif
+        return; // Prevent corruption in release builds too
     }
-    #endif
 
-    // 1. Large Free Path
+    // 2. Large Free Path
     if (header->class_id == LARGE_CLASS_ID) {
+        header->magic = MAGIC_FREE; // Mark as free before unmapping
         size_t total_size = round_up(header->size + sizeof(block_header), 4096);
         munmap(header, total_size);
         return;
     }
 
-    // 2. Small Free Path
-    
-    // ALWAYS set magic to FREE (both release and debug builds)
-    // This prevents the silent corruption Person B found.
-    header->magic = MAGIC_FREE;
+    // 3. Small Free Path
+    header->magic = MAGIC_FREE; // Mark as free
 
     #ifdef MEMCTL_DEBUG
-    // Poison the memory in debug mode
     memset(ptr, 0xDD, header->size);
     #endif
 
     int class_id = header->class_id;
 
-    // Register thread destructor (in case free is called before malloc)
     pthread_once(&cache_key_once, create_cache_key);
     pthread_setspecific(cache_key, (void *)1); 
 
-    // Push to Thread Cache
     if (t_cache[class_id].count < CACHE_MAX_BLOCKS) {
         free_block *fb = (free_block *)ptr;
         fb->next = t_cache[class_id].head;
         t_cache[class_id].head = fb;
         t_cache[class_id].count++;
     } else {
-        // Cache full, flush to global list
         pthread_once(&locks_init_once, init_locks);
         pthread_mutex_lock(&class_locks[class_id]);
         free_block *fb = (free_block *)ptr;

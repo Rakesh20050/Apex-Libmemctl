@@ -33,6 +33,8 @@ $(TEST_BIN): tests/test_runner.c include/libmemctl.h $(LIB)
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
+	gcc -Iinclude tests/arena_test.c build/libmemctl.a -pthread -o build/arena_test
+	./build/arena_test
 
 check-symbols: $(ALLOC_OBJ)
 	@bad="$$( $(NM) -u $(ALLOC_OBJ) | sed 's/.* U //' | sed 's/@.*//' | \
