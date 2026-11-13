@@ -485,6 +485,26 @@ static bool run_test(const char *name, test_function function)
     return passed;
 }
 
+static bool test_large_allocations(void)
+{
+    // Test sizes above the 32KB LARGE_THRESHOLD
+    const size_t sizes[] = {33000, 65536, 1024 * 1024};
+    for (size_t i = 0; i < (sizeof(sizes) / sizeof(sizes[0])); i++) {
+        unsigned char *ptr = (unsigned char *)my_malloc(sizes[i]);
+        if (ptr == NULL || !pointer_is_aligned(ptr)) {
+            my_free(ptr);
+            return false;
+        }
+        fill_pattern(ptr, sizes[i], 0xAA);
+        if (!pattern_is_intact(ptr, sizes[i], 0xAA)) {
+            my_free(ptr);
+            return false;
+        }
+        my_free(ptr); // This calls munmap for large blocks
+    }
+    return true;
+}
+
 int main(void)
 {
     unsigned int passed = 0U;
@@ -492,6 +512,12 @@ int main(void)
 
     if (run_test("basic allocation, free, and max_align_t alignment",
                  test_basic_and_alignment)) {
+        ++passed;
+    } else {
+        ++failed;
+    }
+
+    if (run_test("large allocations (mmap/munmap)", test_large_allocations)) {
         ++passed;
     } else {
         ++failed;
@@ -535,3 +561,4 @@ int main(void)
     (void)printf("\nSummary: %u passed, %u failed\n", passed, failed);
     return (failed == 0U) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
+

@@ -48,3 +48,5 @@ check: check-symbols test
 
 clean:
 	rm -rf $(BUILD_DIR)
+debug: CFLAGS += -DMEMCTL_DEBUG
+debug: clean all

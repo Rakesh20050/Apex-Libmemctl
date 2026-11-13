@@ -44,6 +44,7 @@ int main() {
         printf("SUCCESS: Arena memory is fully reusable!\n");
     } else {
         printf("FAIL: Memory was leaked or not reused.\n");
+        return 1;
     }
 
     return 0;

@@ -235,9 +235,10 @@ void my_free(void *ptr) {
     block_header *header = ((block_header *)ptr) - 1;
 
     #ifdef MEMCTL_DEBUG
-    if (header->magic != MAGIC_LIVE && header->magic != MAGIC_LARGE) {
-        const char *err = "[DEBUG] ERROR: Double free or invalid pointer detected!\n";
-        write(2, err, 55);
+    // Check if it's already free (Double Free Detection)
+    if (header->magic == MAGIC_FREE) {
+        const char *err = "[DEBUG] ERROR: Double free detected!\n";
+        (void)write(2, err, 37); 
         return;
     }
     #endif
@@ -249,25 +250,31 @@ void my_free(void *ptr) {
         return;
     }
 
+    // 2. Small Free Path
+    
+    // ALWAYS set magic to FREE (both release and debug builds)
+    // This prevents the silent corruption Person B found.
+    header->magic = MAGIC_FREE;
+
+    #ifdef MEMCTL_DEBUG
+    // Poison the memory in debug mode
+    memset(ptr, 0xDD, header->size);
+    #endif
+
     int class_id = header->class_id;
 
     // Register thread destructor (in case free is called before malloc)
     pthread_once(&cache_key_once, create_cache_key);
     pthread_setspecific(cache_key, (void *)1); 
 
-    #ifdef MEMCTL_DEBUG
-    header->magic = MAGIC_FREE;
-    memset(ptr, 0xDD, header->size);
-    #endif
-
-    // 2. Small Free Path (Push to Thread Cache)
+    // Push to Thread Cache
     if (t_cache[class_id].count < CACHE_MAX_BLOCKS) {
         free_block *fb = (free_block *)ptr;
         fb->next = t_cache[class_id].head;
         t_cache[class_id].head = fb;
         t_cache[class_id].count++;
     } else {
-        // Cache full, flush this one to global list
+        // Cache full, flush to global list
         pthread_once(&locks_init_once, init_locks);
         pthread_mutex_lock(&class_locks[class_id]);
         free_block *fb = (free_block *)ptr;
