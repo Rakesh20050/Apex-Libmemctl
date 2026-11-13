@@ -47,14 +47,17 @@ The system-call counts remained unchanged after the overflow fix.
 - Note: This is a simple microbenchmark result from one run, not a general performance guarantee.
 
 
-## Final Optimization: Thread Caches
+## Final Optimization: Thread Caches & Arena Utilization
 
-After integrating our 4th novelty (Thread Caches with an exit-flush destructor), we eliminated global lock contention for the fast path. Threads now pull memory from their private, thread-local caches with zero locks.
+After integrating Thread Caches (Novelty 4) and fixing the arena utilization logic (ensuring 100% of the 1MB arena is tracked and reusable, not just the first 32 blocks), we optimized the global free-list refill. By using a batched pointer swap (grabbing 64 blocks per lock acquisition), we eliminated the lock convoy effect.
 
 **Final 8-Thread Throughput:**
-*   **Threaded operations:** 160,000
-*   **Threaded execution time:** ~0.030 seconds
-*   **Final Throughput:** **~5,320,000 operations/second** *(an increase from ~3.1M ops/sec with per-class locks)*
+*   Threaded operations: 160,000
+*   Threaded execution time: ~0.040 to ~0.045 seconds (varies slightly in VM)
+*   Final Throughput:  ~3,500,000 to 4,000,000 operations/second
+
+*Note: While the raw speed is slightly lower than a memory-leaking version (5.3M), this implementation achieves a 100% memory utilization rate and passes the dedicated arena reuse test (`tests/arena_test.c`).
+
 
 ## Summary of Novelty Implementations
 
